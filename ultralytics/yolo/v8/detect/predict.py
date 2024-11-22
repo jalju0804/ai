@@ -17,12 +17,19 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
+import time
 import numpy as np
 
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 data_deque = {}
 
 deepsort = None
+
+if torch.cuda.is_available():
+    print("GPU is available!")
+    print("Device:", torch.cuda.get_device_name(0))
+else:
+    print("GPU is not available.")
 
 def init_tracker():
     global deepsort
@@ -181,7 +188,9 @@ class DetectionPredictor(BasePredictor):
         return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
 
     def preprocess(self, img):
-        img = torch.from_numpy(img).to(self.model.device)
+        # GPU 사용을 위해 모델 장치를 강제로 CUDA로 설정
+        self.model.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        img = torch.from_numpy(img).to(self.model.device)  # GPU로 데이터 이동
         img = img.half() if self.model.fp16 else img.float()  # uint8 to fp16/32
         img /= 255  # 0 - 255 to 0.0 - 1.0
         return img
@@ -351,13 +360,23 @@ class DetectionPredictor(BasePredictor):
 
 @hydra.main(version_base=None, config_path=str(DEFAULT_CONFIG.parent), config_name=DEFAULT_CONFIG.name)
 def predict(cfg):
+    torch.backends.cudnn.benchmark = True  # 성능 최적화
+
+    # 실행 시작 시간 기록
+    start_time = time.time()
+
     init_tracker()
+    cfg.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg.model = cfg.model or "yolov8n.pt"
     cfg.imgsz = check_imgsz(cfg.imgsz, min_dim=2)  # 이미지 크기 확인
     cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
     predictor = DetectionPredictor(cfg)
     predictor()
-    # 최종 결과 출력은 on_predict_end에서 처리됨
+
+    # 실행 종료 시간 기록
+    end_time = time.time()
+    elapsed_time = end_time - start_time  # 전체 실행 시간 계산
+    print(f"전체 실행 시간: {elapsed_time:.2f}초")  # 실행 시간 출력
 
 if __name__ == "__main__":
     predict()
