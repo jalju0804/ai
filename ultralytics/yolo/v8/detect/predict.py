@@ -318,13 +318,53 @@ class DetectionPredictor(BasePredictor):
 
         return log_string
 
-    def save_object_image(self, img, bbox, obj_id):
-        """객체의 이미지를 바운딩 박스로 잘라 저장합니다."""
+    def save_object_image(self, img, bbox, obj_id, min_size=80):
+        """객체의 이미지를 바운딩 박스로 잘라 저장합니다.
+        Args:
+            img: 현재 프레임 이미지
+            bbox: 바운딩 박스 좌표 (x1, y1, x2, y2)
+            obj_id: 객체 ID
+            min_size: 객체 저장을 위한 최소 크기 (픽셀)
+        """
         x1, y1, x2, y2 = [int(coord) for coord in bbox]
+        w, h = x2 - x1, y2 - y1
+
+        # 너비와 높이를 최소 크기로 확장
+        if w < min_size:
+            diff = (min_size - w) // 2
+            x1 -= diff
+            x2 += diff
+        if h < min_size:
+            diff = (min_size - h) // 2
+            y1 -= diff
+            y2 += diff
+
+        # 이미지 경계를 넘어가지 않도록 제한
+        x1 = max(x1, 0)
+        y1 = max(y1, 0)
+        x2 = min(x2, img.shape[1])  # img.shape[1]은 이미지의 너비
+        y2 = min(y2, img.shape[0])  # img.shape[0]은 이미지의 높이
+
+        # 최종 너비와 높이를 다시 계산
+        w, h = x2 - x1, y2 - y1
+
+        # 너비와 높이가 여전히 최소 크기보다 작은 경우 추가 확장
+        if w < min_size:
+            x2 = min(x2 + (min_size - w), img.shape[1])
+            x1 = max(x1 - (min_size - w), 0)
+        if h < min_size:
+            y2 = min(y2 + (min_size - h), img.shape[0])
+            y1 = max(y1 - (min_size - h), 0)
+
+        # 최종 바운딩 박스 크기 확인
+        w, h = x2 - x1, y2 - y1
+        assert w >= min_size and h >= min_size, "Bounding box resizing failed to meet minimum size"
+
+        # 바운딩 박스 크기 조정 후 이미지 잘라내기
         obj_img = img[y1:y2, x1:x2]
         obj_img_path = self.object_save_dir / f"object_{obj_id}.jpg"
         cv2.imwrite(str(obj_img_path), obj_img)
-        print(f"ID {obj_id} 객체의 이미지를 저장했습니다.")
+        print(f"ID {obj_id} 객체의 이미지를 저장했습니다. 크기: {obj_img.shape[1]}x{obj_img.shape[0]}")
 
     def check_left_objects(self, current_frame, current_ids=[]):
         # 현재 추적 중인 객체 중에서 current_ids에 없는 객체를 찾습니다.
